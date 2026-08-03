@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+<title>동물퀴즈</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- 시작 화면 -->
+  <section id="frontScreen" class="screen">
+    <div class="card front-card">
+      <div class="mascot">🐯🦕🐬🦋</div>
+      <h1>동물퀴즈</h1>
+      <p class="subtitle">힌트를 듣고 어떤 동물인지 맞혀보세요!</p>
+      <button id="startBtn" class="big-btn primary">🎯 퀴즈 시작하기</button>
+      <p id="supportWarning" class="warning hidden">
+        이 브라우저에서는 음성인식이 되지 않아요.<br>
+        컴퓨터의 <b>크롬(Chrome)</b> 브라우저로 열어주세요.
+      </p>
+    </div>
+  </section>
+
+  <!-- 퀴즈 화면 -->
+  <section id="quizScreen" class="screen hidden">
+    <div class="card quiz-card">
+      <div class="progress-row">
+        <span id="progressText">1 / 150</span>
+        <div class="progress-bar"><div id="progressFill" class="progress-fill"></div></div>
+      </div>
+
+      <div id="animalEmoji" class="animal-emoji">❓</div>
+
+      <div id="statusText" class="status-text">버튼을 눌러서 힌트를 들어보세요!</div>
+
+      <div id="listeningIndicator" class="listening-indicator hidden">
+        <span class="pulse-dot"></span> 듣고 있어요...
+      </div>
+
+      <div id="feedbackText" class="feedback-text"></div>
+
+      <div class="button-row">
+        <button id="playBtn" class="big-btn primary">🔊 힌트 듣기</button>
+        <button id="retryListenBtn" class="big-btn secondary hidden">🎤 다시 말하기</button>
+        <button id="nextBtn" class="big-btn success hidden">➡️ 다음 동물 퀴즈</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 완료 화면 -->
+  <section id="doneScreen" class="screen hidden">
+    <div class="card front-card">
+      <div class="mascot">🎉🏆🎉</div>
+      <h1>다 풀었어요!</h1>
+      <p class="subtitle">150개 동물퀴즈를 모두 완료했어요. 최고예요!</p>
+      <button id="restartBtn" class="big-btn primary">🔄 다시 시작하기</button>
+    </div>
+  </section>
+
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
