@@ -18,6 +18,9 @@ const listeningIndicator = document.getElementById("listeningIndicator");
 const playBtn = document.getElementById("playBtn");
 const retryListenBtn = document.getElementById("retryListenBtn");
 const nextBtn = document.getElementById("nextBtn");
+const doneCount = document.getElementById("doneCount");
+
+if (doneCount) doneCount.textContent = ANIMALS.length;
 
 // ---------- 음성인식 지원 확인 ----------
 const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
