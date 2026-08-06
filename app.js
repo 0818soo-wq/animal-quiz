@@ -24,43 +24,27 @@ if (doneCount) doneCount.textContent = ANIMALS.length;
 
 // ---------- 음성인식 지원 확인 ----------
 const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
-const speechSupported = !!SpeechRecognitionCtor && !!window.speechSynthesis;
+const speechSupported = !!SpeechRecognitionCtor;
 if (!speechSupported) {
   supportWarning.classList.remove("hidden");
   startBtn.disabled = true;
   startBtn.style.opacity = "0.5";
 }
 
-// ---------- 다정한 여자 목소리 선택 ----------
-let chosenVoice = null;
-function pickVoice() {
-  const voices = window.speechSynthesis.getVoices();
-  const koVoices = voices.filter(v => v.lang && v.lang.toLowerCase().startsWith("ko"));
-  const femaleHints = ["female", "여성", "여자", "heami", "yuna", "sun-hi", "sunhi", "seoyeon", "지민", "나연"];
-  let pick = koVoices.find(v => femaleHints.some(h => v.name.toLowerCase().includes(h)));
-  if (!pick) pick = koVoices.find(v => !/male|남성|남자/i.test(v.name));
-  if (!pick) pick = koVoices[0];
-  chosenVoice = pick || null;
-}
-pickVoice();
-if (window.speechSynthesis) {
-  window.speechSynthesis.onvoiceschanged = pickVoice;
+// ---------- 미리 만든 오디오(엣지 신경망 TTS) 재생 ----------
+function playAudio(src) {
+  return new Promise((resolve) => {
+    const audio = new Audio(src);
+    audio.onended = resolve;
+    audio.onerror = resolve;
+    audio.play().catch(() => resolve());
+  });
 }
 
-function speak(text) {
-  return new Promise((resolve) => {
-    if (!window.speechSynthesis) { resolve(); return; }
-    window.speechSynthesis.cancel();
-    const utter = new SpeechSynthesisUtterance(text);
-    utter.lang = "ko-KR";
-    if (chosenVoice) utter.voice = chosenVoice;
-    utter.pitch = 1.15;
-    utter.rate = 0.95;
-    utter.volume = 1;
-    utter.onend = resolve;
-    utter.onerror = resolve;
-    window.speechSynthesis.speak(utter);
-  });
+function unlockAudio() {
+  const a = new Audio("audio/shared-intro.mp3");
+  a.volume = 0;
+  a.play().then(() => { a.pause(); a.currentTime = 0; }).catch(() => {});
 }
 
 // ---------- 답 정답 판정 ----------
@@ -166,12 +150,13 @@ async function playHintAndListen(isFirst) {
 
   if (isFirst) {
     statusText.textContent = "잘 듣고 저를 맞혀보세요!";
-    await speak("나는 누구일까요? 맞춰보세요!");
-    await speak(animal.hints[0]);
+    await playAudio("audio/shared-intro.mp3");
+    await playAudio(`audio/${animal.id}-hint1.mp3`);
+    await playAudio(`audio/${animal.id}-hint2.mp3`);
   } else {
     statusText.textContent = "힌트를 하나 더 들려줄게요!";
-    await speak("땡, 힌트를 하나 더 드리자면~");
-    await speak(animal.hints[1]);
+    await playAudio("audio/shared-more-hint.mp3");
+    await playAudio(`audio/${animal.id}-hint3.mp3`);
   }
   listenForAnswer();
 }
@@ -223,7 +208,7 @@ async function handleAnswer(transcript) {
     animalEmoji.textContent = animal.emoji;
     feedbackText.textContent = "딩동댕~ 정답이에요!";
     statusText.textContent = `정답: ${animal.name}`;
-    await speak("딩동댕~ 정답이에요!");
+    await playAudio("audio/shared-correct.mp3");
     finishAnimal();
     return;
   }
@@ -237,8 +222,7 @@ async function handleAnswer(transcript) {
     const wasWord = wasParticle(animal.name);
     feedbackText.textContent = `정답은 ${animal.name}${wasWord}!`;
     statusText.textContent = `정답: ${animal.name}`;
-    const bonus = animal.hints[2] ? ` ${animal.hints[2]}` : "";
-    await speak(`땡! 정답은 ${animal.name} ${wasWord}.${bonus}`);
+    await playAudio(`audio/${animal.id}-reveal.mp3`);
     finishAnimal();
   }
 }
@@ -261,7 +245,7 @@ function goNext() {
 
 // ---------- 이벤트 연결 ----------
 startBtn.addEventListener("click", () => {
-  window.speechSynthesis && window.speechSynthesis.resume();
+  unlockAudio();
   startQuiz();
 });
 
