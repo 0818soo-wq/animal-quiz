@@ -161,26 +161,70 @@ async function playHintAndListen(isFirst) {
   listenForAnswer();
 }
 
+const LISTEN_IDLE_MS = 2500; // 새 인식이 없으면 이 시간 후 마무리
+const LISTEN_MAX_MS = 10000; // 잡음 등으로 끝없이 듣는 걸 막는 절대 상한
+
 function listenForAnswer() {
   if (!speechSupported) return;
   recognition = new SpeechRecognitionCtor();
   recognition.lang = "ko-KR";
-  recognition.interimResults = false;
+  recognition.continuous = true; // 아이가 여러 후보를 이어 말해도 끊기지 않도록
+  recognition.interimResults = true; // 말하는 도중에도 계속 확인해서 정답이면 바로 끊기 위해
   recognition.maxAlternatives = 3;
 
   listeningIndicator.classList.remove("hidden");
   statusText.textContent = "이름을 말해보세요!";
 
-  recognition.onresult = (event) => {
+  const animal = currentAnimal();
+  let matched = false;
+  let finished = false;
+  let fullTranscript = "";
+  let idleTimer = null;
+  let hardTimer = null;
+
+  function cleanupTimers() {
+    clearTimeout(idleTimer);
+    clearTimeout(hardTimer);
+  }
+
+  function stopListening() {
+    if (finished) return;
+    finished = true;
+    cleanupTimers();
     listeningIndicator.classList.add("hidden");
-    let transcript = "";
-    for (let i = 0; i < event.results[0].length; i++) {
-      transcript += " " + event.results[0][i].transcript;
+    try { recognition.stop(); } catch (e) {}
+  }
+
+  function resetIdleTimer() {
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(stopListening, LISTEN_IDLE_MS);
+  }
+
+  hardTimer = setTimeout(stopListening, LISTEN_MAX_MS);
+  resetIdleTimer();
+
+  recognition.onresult = (event) => {
+    let combined = "";
+    for (let i = 0; i < event.results.length; i++) {
+      for (let j = 0; j < event.results[i].length; j++) {
+        combined += " " + event.results[i][j].transcript;
+      }
     }
-    handleAnswer(transcript);
+    fullTranscript = combined;
+    resetIdleTimer();
+
+    if (!matched && isCorrectAnswer(combined, animal)) {
+      matched = true;
+      stopListening();
+      handleAnswer(combined);
+    }
   };
 
   recognition.onerror = (event) => {
+    if (finished || matched) return;
+    if (event.error === "no-speech" || event.error === "aborted") return;
+    finished = true;
+    cleanupTimers();
     listeningIndicator.classList.add("hidden");
     if (event.error === "not-allowed" || event.error === "service-not-allowed") {
       statusText.textContent = "마이크 사용을 허락해주셔야 들을 수 있어요.";
@@ -191,12 +235,21 @@ function listenForAnswer() {
   };
 
   recognition.onend = () => {
+    cleanupTimers();
     listeningIndicator.classList.add("hidden");
+    if (matched) return;
+    if (fullTranscript.trim()) {
+      handleAnswer(fullTranscript);
+    } else {
+      statusText.textContent = "잘 못 들었어요. 다시 말해줄래요?";
+      retryListenBtn.classList.remove("hidden");
+    }
   };
 
   try {
     recognition.start();
   } catch (e) {
+    cleanupTimers();
     retryListenBtn.classList.remove("hidden");
   }
 }
