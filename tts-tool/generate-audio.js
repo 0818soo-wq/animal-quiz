@@ -17,16 +17,18 @@ function wasParticle(word) {
   return hasFinalConsonant(word) ? "이었어요" : "였어요";
 }
 
+const VOLUME_OPTION = { volume: "+80%" };
+
 const jobs = [];
 jobs.push({ file: "shared-intro.mp3", text: "나는 누구일까요? 맞춰보세요!" });
 jobs.push({ file: "shared-more-hint.mp3", text: "땡, 힌트를 하나 더 드리자면~" });
-jobs.push({ file: "shared-correct.mp3", text: "딩동댕~ 정답이에요!" });
 
 for (const a of ANIMALS) {
   jobs.push({ file: `${a.id}-hint1.mp3`, text: a.hints[0] });
   jobs.push({ file: `${a.id}-hint2.mp3`, text: a.hints[1] });
   jobs.push({ file: `${a.id}-hint3.mp3`, text: a.hints[2] });
   jobs.push({ file: `${a.id}-reveal.mp3`, text: `땡! 정답은 ${a.name}${wasParticle(a.name)}.` });
+  jobs.push({ file: `${a.id}-correct.mp3`, text: `딩동댕~ 정답이에요! 정답은 ${a.name}${wasParticle(a.name)}!` });
 }
 
 // skip files that already exist and are non-empty (so re-runs after a crash only fill gaps)
@@ -41,7 +43,7 @@ function synthOne(tts, text, outPath) {
   return new Promise((resolve, reject) => {
     let audioStream;
     try {
-      ({ audioStream } = tts.toStream(text));
+      ({ audioStream } = tts.toStream(text, VOLUME_OPTION));
     } catch (e) {
       reject(e);
       return;

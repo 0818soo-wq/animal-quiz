@@ -16,6 +16,7 @@ const feedbackText = document.getElementById("feedbackText");
 const listeningIndicator = document.getElementById("listeningIndicator");
 
 const playBtn = document.getElementById("playBtn");
+const doneListeningBtn = document.getElementById("doneListeningBtn");
 const retryListenBtn = document.getElementById("retryListenBtn");
 const nextBtn = document.getElementById("nextBtn");
 const doneCount = document.getElementById("doneCount");
@@ -138,12 +139,14 @@ function loadCurrentAnimal() {
   listeningIndicator.classList.add("hidden");
   playBtn.classList.remove("hidden");
   playBtn.disabled = false;
+  doneListeningBtn.classList.add("hidden");
   retryListenBtn.classList.add("hidden");
   nextBtn.classList.add("hidden");
 }
 
 async function playHintAndListen(isFirst) {
   playBtn.classList.add("hidden");
+  doneListeningBtn.classList.add("hidden");
   retryListenBtn.classList.add("hidden");
   feedbackText.textContent = "";
   const animal = currentAnimal();
@@ -161,8 +164,9 @@ async function playHintAndListen(isFirst) {
   listenForAnswer();
 }
 
-const LISTEN_IDLE_MS = 2500; // 새 인식이 없으면 이 시간 후 마무리
-const LISTEN_MAX_MS = 10000; // 잡음 등으로 끝없이 듣는 걸 막는 절대 상한
+const LISTEN_SAFETY_MAX_MS = 30000; // 완료 버튼을 안 눌러도 무한정 듣지는 않도록 하는 최후의 안전장치
+
+let manualFinishListening = null;
 
 function listenForAnswer() {
   if (!speechSupported) return;
@@ -170,38 +174,46 @@ function listenForAnswer() {
   recognition.lang = "ko-KR";
   recognition.continuous = true; // 아이가 여러 후보를 이어 말해도 끊기지 않도록
   recognition.interimResults = true; // 말하는 도중에도 계속 확인해서 정답이면 바로 끊기 위해
-  recognition.maxAlternatives = 3;
+  recognition.maxAlternatives = 5;
 
   listeningIndicator.classList.remove("hidden");
-  statusText.textContent = "이름을 말해보세요!";
+  doneListeningBtn.classList.remove("hidden");
+  retryListenBtn.classList.add("hidden");
+  statusText.textContent = "이름을 말해보세요! 다 말했으면 '다 말했어요'를 눌러주세요.";
 
   const animal = currentAnimal();
   let matched = false;
   let finished = false;
   let fullTranscript = "";
-  let idleTimer = null;
-  let hardTimer = null;
+  let safetyTimer = null;
 
-  function cleanupTimers() {
-    clearTimeout(idleTimer);
-    clearTimeout(hardTimer);
+  function cleanup() {
+    clearTimeout(safetyTimer);
+    listeningIndicator.classList.add("hidden");
+    doneListeningBtn.classList.add("hidden");
+    if (manualFinishListening === finalize) manualFinishListening = null;
   }
 
-  function stopListening() {
+  function stopRecognition() {
     if (finished) return;
     finished = true;
-    cleanupTimers();
-    listeningIndicator.classList.add("hidden");
+    cleanup();
     try { recognition.stop(); } catch (e) {}
   }
 
-  function resetIdleTimer() {
-    clearTimeout(idleTimer);
-    idleTimer = setTimeout(stopListening, LISTEN_IDLE_MS);
+  function finalize() {
+    if (finished || matched) return;
+    stopRecognition();
+    if (fullTranscript.trim()) {
+      handleAnswer(fullTranscript);
+    } else {
+      statusText.textContent = "아직 아무 말도 안 들렸어요. 다시 말해줄래요?";
+      retryListenBtn.classList.remove("hidden");
+    }
   }
 
-  hardTimer = setTimeout(stopListening, LISTEN_MAX_MS);
-  resetIdleTimer();
+  manualFinishListening = finalize;
+  safetyTimer = setTimeout(finalize, LISTEN_SAFETY_MAX_MS);
 
   recognition.onresult = (event) => {
     let combined = "";
@@ -211,11 +223,10 @@ function listenForAnswer() {
       }
     }
     fullTranscript = combined;
-    resetIdleTimer();
 
     if (!matched && isCorrectAnswer(combined, animal)) {
       matched = true;
-      stopListening();
+      stopRecognition();
       handleAnswer(combined);
     }
   };
@@ -224,8 +235,7 @@ function listenForAnswer() {
     if (finished || matched) return;
     if (event.error === "no-speech" || event.error === "aborted") return;
     finished = true;
-    cleanupTimers();
-    listeningIndicator.classList.add("hidden");
+    cleanup();
     if (event.error === "not-allowed" || event.error === "service-not-allowed") {
       statusText.textContent = "마이크 사용을 허락해주셔야 들을 수 있어요.";
     } else {
@@ -235,21 +245,15 @@ function listenForAnswer() {
   };
 
   recognition.onend = () => {
-    cleanupTimers();
-    listeningIndicator.classList.add("hidden");
-    if (matched) return;
-    if (fullTranscript.trim()) {
-      handleAnswer(fullTranscript);
-    } else {
-      statusText.textContent = "잘 못 들었어요. 다시 말해줄래요?";
-      retryListenBtn.classList.remove("hidden");
-    }
+    // 브라우저가 자체적으로 멈춘 경우(우리가 먼저 끝낸 게 아니라면) 지금까지 들은 걸로 마무리
+    if (finished || matched) return;
+    finalize();
   };
 
   try {
     recognition.start();
   } catch (e) {
-    cleanupTimers();
+    cleanup();
     retryListenBtn.classList.remove("hidden");
   }
 }
@@ -259,9 +263,9 @@ async function handleAnswer(transcript) {
 
   if (isCorrectAnswer(transcript, animal)) {
     animalEmoji.textContent = animal.emoji;
-    feedbackText.textContent = "딩동댕~ 정답이에요!";
+    feedbackText.textContent = `딩동댕~ 정답이에요! 정답은 ${animal.name}${wasParticle(animal.name)}!`;
     statusText.textContent = `정답: ${animal.name}`;
-    await playAudio("audio/shared-correct.mp3");
+    await playAudio(`audio/${animal.id}-correct.mp3`);
     finishAnimal();
     return;
   }
@@ -308,6 +312,10 @@ restartBtn.addEventListener("click", () => {
 
 playBtn.addEventListener("click", () => {
   playHintAndListen(true);
+});
+
+doneListeningBtn.addEventListener("click", () => {
+  if (manualFinishListening) manualFinishListening();
 });
 
 retryListenBtn.addEventListener("click", () => {
