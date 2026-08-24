@@ -184,3 +184,20 @@ h1 {
 }
 
 .button-row { margin-top: 14px; }
+
+.skip-link {
+  display: block;
+  width: 100%;
+  margin-top: 14px;
+  padding: 8px;
+  background: none;
+  border: none;
+  color: #b0a293;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.skip-link:active { opacity: 0.6; }

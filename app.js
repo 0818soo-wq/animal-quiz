@@ -17,8 +17,10 @@ const listeningIndicator = document.getElementById("listeningIndicator");
 
 const playBtn = document.getElementById("playBtn");
 const doneListeningBtn = document.getElementById("doneListeningBtn");
+const replayHintBtn = document.getElementById("replayHintBtn");
 const retryListenBtn = document.getElementById("retryListenBtn");
 const nextBtn = document.getElementById("nextBtn");
+const skipBtn = document.getElementById("skipBtn");
 const doneCount = document.getElementById("doneCount");
 
 if (doneCount) doneCount.textContent = ANIMALS.length;
@@ -33,13 +35,38 @@ if (!speechSupported) {
 }
 
 // ---------- 미리 만든 오디오(엣지 신경망 TTS) 재생 ----------
+let currentAudioEl = null;
+let currentAudioResolve = null;
+
 function playAudio(src) {
   return new Promise((resolve) => {
     const audio = new Audio(src);
-    audio.onended = resolve;
-    audio.onerror = resolve;
-    audio.play().catch(() => resolve());
+    currentAudioEl = audio;
+    currentAudioResolve = resolve;
+    const finish = () => {
+      if (currentAudioEl === audio) {
+        currentAudioEl = null;
+        currentAudioResolve = null;
+      }
+      resolve();
+    };
+    audio.onended = finish;
+    audio.onerror = finish;
+    audio.play().catch(finish);
   });
+}
+
+// 건너뛰기 등으로 재생 중인 오디오를 즉시 멈추고, 기다리고 있던 await도 바로 풀어줌
+function stopCurrentAudio() {
+  if (currentAudioEl) {
+    try { currentAudioEl.pause(); } catch (e) {}
+  }
+  if (currentAudioResolve) {
+    const resolve = currentAudioResolve;
+    currentAudioEl = null;
+    currentAudioResolve = null;
+    resolve();
+  }
 }
 
 function unlockAudio() {
@@ -102,6 +129,7 @@ let currentIndex = 0;
 let attemptStage = 0; // 0: 첫 힌트, 1: 두 번째 힌트
 let recognizing = false;
 let recognition = null;
+let quizToken = 0; // 건너뛰기 등으로 넘어가면 값이 바뀌어서, 이전 문제의 남은 처리를 무시하게 함
 
 function shuffle(arr) {
   const a = arr.slice();
@@ -129,6 +157,7 @@ function currentAnimal() {
 }
 
 function loadCurrentAnimal() {
+  quizToken++;
   attemptStage = 0;
   const animal = currentAnimal();
   progressText.textContent = `${currentIndex + 1} / ${quizOrder.length}`;
@@ -140,33 +169,60 @@ function loadCurrentAnimal() {
   playBtn.classList.remove("hidden");
   playBtn.disabled = false;
   doneListeningBtn.classList.add("hidden");
+  replayHintBtn.classList.add("hidden");
   retryListenBtn.classList.add("hidden");
   nextBtn.classList.add("hidden");
 }
 
-async function playHintAndListen(isFirst) {
-  playBtn.classList.add("hidden");
-  doneListeningBtn.classList.add("hidden");
-  retryListenBtn.classList.add("hidden");
-  feedbackText.textContent = "";
+async function playHintAudio(token, isFirst) {
   const animal = currentAnimal();
-
   if (isFirst) {
     statusText.textContent = "잘 듣고 저를 맞혀보세요!";
     await playAudio("audio/shared-intro.mp3");
+    if (token !== quizToken) return;
     await playAudio(`audio/${animal.id}-hint1.mp3`);
+    if (token !== quizToken) return;
     await playAudio(`audio/${animal.id}-hint2.mp3`);
   } else {
     statusText.textContent = "힌트를 하나 더 들려줄게요!";
     await playAudio("audio/shared-more-hint.mp3");
+    if (token !== quizToken) return;
     await playAudio(`audio/${animal.id}-hint3.mp3`);
   }
+}
+
+async function playHintAndListen(isFirst) {
+  const token = quizToken;
+  playBtn.classList.add("hidden");
+  doneListeningBtn.classList.add("hidden");
+  replayHintBtn.classList.add("hidden");
+  retryListenBtn.classList.add("hidden");
+  feedbackText.textContent = "";
+  await playHintAudio(token, isFirst);
+  if (token !== quizToken) return;
   listenForAnswer();
+}
+
+async function replayHint() {
+  const token = quizToken;
+  if (manualCancelListening) manualCancelListening();
+  replayHintBtn.classList.add("hidden");
+  doneListeningBtn.classList.add("hidden");
+  await playHintAudio(token, attemptStage === 0);
+  if (token !== quizToken) return;
+  listenForAnswer();
+}
+
+function skipToNext() {
+  if (manualCancelListening) manualCancelListening();
+  stopCurrentAudio();
+  goNext();
 }
 
 const LISTEN_SAFETY_MAX_MS = 30000; // 완료 버튼을 안 눌러도 무한정 듣지는 않도록 하는 최후의 안전장치
 
 let manualFinishListening = null;
+let manualCancelListening = null;
 
 function listenForAnswer() {
   if (!speechSupported) return;
@@ -178,6 +234,7 @@ function listenForAnswer() {
 
   listeningIndicator.classList.remove("hidden");
   doneListeningBtn.classList.remove("hidden");
+  replayHintBtn.classList.remove("hidden");
   retryListenBtn.classList.add("hidden");
   statusText.textContent = "이름을 말해보세요! 다 말했으면 '다 말했어요'를 눌러주세요.";
 
@@ -191,7 +248,9 @@ function listenForAnswer() {
     clearTimeout(safetyTimer);
     listeningIndicator.classList.add("hidden");
     doneListeningBtn.classList.add("hidden");
+    replayHintBtn.classList.add("hidden");
     if (manualFinishListening === finalize) manualFinishListening = null;
+    if (manualCancelListening === stopRecognition) manualCancelListening = null;
   }
 
   function stopRecognition() {
@@ -213,6 +272,7 @@ function listenForAnswer() {
   }
 
   manualFinishListening = finalize;
+  manualCancelListening = stopRecognition;
   safetyTimer = setTimeout(finalize, LISTEN_SAFETY_MAX_MS);
 
   recognition.onresult = (event) => {
@@ -259,6 +319,7 @@ function listenForAnswer() {
 }
 
 async function handleAnswer(transcript) {
+  const token = quizToken;
   const animal = currentAnimal();
 
   if (isCorrectAnswer(transcript, animal)) {
@@ -266,6 +327,7 @@ async function handleAnswer(transcript) {
     feedbackText.textContent = `딩동댕~ 정답이에요! 정답은 ${animal.name}${wasParticle(animal.name)}!`;
     statusText.textContent = `정답: ${animal.name}`;
     await playAudio(`audio/${animal.id}-correct.mp3`);
+    if (token !== quizToken) return;
     finishAnimal();
     return;
   }
@@ -280,12 +342,15 @@ async function handleAnswer(transcript) {
     feedbackText.textContent = `정답은 ${animal.name}${wasWord}!`;
     statusText.textContent = `정답: ${animal.name}`;
     await playAudio(`audio/${animal.id}-reveal.mp3`);
+    if (token !== quizToken) return;
     finishAnimal();
   }
 }
 
 function finishAnimal() {
   playBtn.classList.add("hidden");
+  doneListeningBtn.classList.add("hidden");
+  replayHintBtn.classList.add("hidden");
   retryListenBtn.classList.add("hidden");
   nextBtn.classList.remove("hidden");
   progressFill.style.width = `${((currentIndex + 1) / quizOrder.length) * 100}%`;
@@ -318,9 +383,15 @@ doneListeningBtn.addEventListener("click", () => {
   if (manualFinishListening) manualFinishListening();
 });
 
+replayHintBtn.addEventListener("click", () => {
+  replayHint();
+});
+
 retryListenBtn.addEventListener("click", () => {
   retryListenBtn.classList.add("hidden");
   listenForAnswer();
 });
 
 nextBtn.addEventListener("click", goNext);
+
+skipBtn.addEventListener("click", skipToNext);
