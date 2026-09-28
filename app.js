@@ -224,19 +224,11 @@ const LISTEN_SAFETY_MAX_MS = 30000; // 완료 버튼을 안 눌러도 무한정 
 let manualFinishListening = null;
 let manualCancelListening = null;
 
+// continuous:true는 크롬 버전/기기에 따라 결과를 아예 못 받아오는 등 불안정해서,
+// 안정적으로 검증된 단발 인식(continuous:false)을 침묵으로 끊길 때마다 자동으로
+// 새로 시작해서 이어 붙이는 방식으로 구현함 (완료 버튼을 누르기 전까지 계속 이어짐).
 function listenForAnswer() {
   if (!speechSupported) return;
-  recognition = new SpeechRecognitionCtor();
-  recognition.lang = "ko-KR";
-  recognition.continuous = true; // 아이가 여러 후보를 이어 말해도 끊기지 않도록
-  recognition.interimResults = true; // 말하는 도중에도 계속 확인해서 정답이면 바로 끊기 위해
-  recognition.maxAlternatives = 5;
-
-  listeningIndicator.classList.remove("hidden");
-  doneListeningBtn.classList.remove("hidden");
-  replayHintBtn.classList.remove("hidden");
-  retryListenBtn.classList.add("hidden");
-  statusText.textContent = "이름을 말해보세요! 다 말했으면 '다 말했어요'를 눌러주세요.";
 
   const animal = currentAnimal();
   let matched = false;
@@ -244,25 +236,43 @@ function listenForAnswer() {
   let fullTranscript = "";
   let safetyTimer = null;
 
+  listeningIndicator.classList.remove("hidden");
+  doneListeningBtn.classList.remove("hidden");
+  replayHintBtn.classList.remove("hidden");
+  retryListenBtn.classList.add("hidden");
+  statusText.textContent = "이름을 말해보세요! 다 말했으면 '다 말했어요'를 눌러주세요.";
+
   function cleanup() {
     clearTimeout(safetyTimer);
     listeningIndicator.classList.add("hidden");
     doneListeningBtn.classList.add("hidden");
     replayHintBtn.classList.add("hidden");
     if (manualFinishListening === finalize) manualFinishListening = null;
-    if (manualCancelListening === stopRecognition) manualCancelListening = null;
+    if (manualCancelListening === cancelListening) manualCancelListening = null;
   }
 
-  function stopRecognition() {
+  function stopCurrentSession() {
+    if (recognition) {
+      recognition.onresult = null;
+      recognition.onerror = null;
+      recognition.onend = null;
+      try { recognition.stop(); } catch (e) {}
+      recognition = null;
+    }
+  }
+
+  function cancelListening() {
     if (finished) return;
     finished = true;
+    stopCurrentSession();
     cleanup();
-    try { recognition.stop(); } catch (e) {}
   }
 
   function finalize() {
     if (finished || matched) return;
-    stopRecognition();
+    finished = true;
+    stopCurrentSession();
+    cleanup();
     if (fullTranscript.trim()) {
       handleAnswer(fullTranscript);
     } else {
@@ -272,50 +282,69 @@ function listenForAnswer() {
   }
 
   manualFinishListening = finalize;
-  manualCancelListening = stopRecognition;
+  manualCancelListening = cancelListening;
   safetyTimer = setTimeout(finalize, LISTEN_SAFETY_MAX_MS);
 
-  recognition.onresult = (event) => {
-    let combined = "";
-    for (let i = 0; i < event.results.length; i++) {
-      for (let j = 0; j < event.results[i].length; j++) {
-        combined += " " + event.results[i][j].transcript;
+  function startSession() {
+    if (finished || matched) return;
+    recognition = new SpeechRecognitionCtor();
+    recognition.lang = "ko-KR";
+    recognition.continuous = false;
+    recognition.interimResults = true; // 말하는 도중에도 계속 확인해서 정답이면 바로 끊기 위해
+    recognition.maxAlternatives = 5;
+
+    recognition.onresult = (event) => {
+      let combined = "";
+      for (let i = 0; i < event.results.length; i++) {
+        for (let j = 0; j < event.results[i].length; j++) {
+          combined += " " + event.results[i][j].transcript;
+        }
       }
+      // 이번 세션에서 들은 말을 이전까지 들은 것과 합쳐서, 끊겨도 여러 후보를 계속 판정
+      fullTranscript = (fullTranscript + " " + combined).trim();
+
+      if (!matched && isCorrectAnswer(fullTranscript, animal)) {
+        matched = true;
+        finished = true;
+        stopCurrentSession();
+        cleanup();
+        handleAnswer(fullTranscript);
+      }
+    };
+
+    recognition.onerror = (event) => {
+      if (finished || matched) return;
+      if (event.error === "no-speech") {
+        startSession(); // 잠깐 조용했던 것뿐이니 완료 버튼 누르기 전까지 계속 듣기
+        return;
+      }
+      if (event.error === "aborted") return;
+      finished = true;
+      cleanup();
+      if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+        statusText.textContent = "마이크 사용을 허락해주셔야 들을 수 있어요.";
+      } else {
+        statusText.textContent = "잘 못 들었어요. 다시 말해줄래요?";
+      }
+      retryListenBtn.classList.remove("hidden");
+    };
+
+    recognition.onend = () => {
+      // 한 문장이 침묵으로 자연스럽게 끝난 것 -> 완료 버튼을 아직 안 눌렀으면 이어서 계속 듣기
+      if (finished || matched) return;
+      startSession();
+    };
+
+    try {
+      recognition.start();
+    } catch (e) {
+      finished = true;
+      cleanup();
+      retryListenBtn.classList.remove("hidden");
     }
-    fullTranscript = combined;
-
-    if (!matched && isCorrectAnswer(combined, animal)) {
-      matched = true;
-      stopRecognition();
-      handleAnswer(combined);
-    }
-  };
-
-  recognition.onerror = (event) => {
-    if (finished || matched) return;
-    if (event.error === "no-speech" || event.error === "aborted") return;
-    finished = true;
-    cleanup();
-    if (event.error === "not-allowed" || event.error === "service-not-allowed") {
-      statusText.textContent = "마이크 사용을 허락해주셔야 들을 수 있어요.";
-    } else {
-      statusText.textContent = "잘 못 들었어요. 다시 말해줄래요?";
-    }
-    retryListenBtn.classList.remove("hidden");
-  };
-
-  recognition.onend = () => {
-    // 브라우저가 자체적으로 멈춘 경우(우리가 먼저 끝낸 게 아니라면) 지금까지 들은 걸로 마무리
-    if (finished || matched) return;
-    finalize();
-  };
-
-  try {
-    recognition.start();
-  } catch (e) {
-    cleanup();
-    retryListenBtn.classList.remove("hidden");
   }
+
+  startSession();
 }
 
 async function handleAnswer(transcript) {
