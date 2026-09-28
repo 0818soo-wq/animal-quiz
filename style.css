@@ -185,10 +185,15 @@ h1 {
 
 .button-row { margin-top: 14px; }
 
+.skip-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+}
+
 .skip-link {
   display: block;
-  width: 100%;
-  margin-top: 14px;
+  flex: 1;
   padding: 8px;
   background: none;
   border: none;

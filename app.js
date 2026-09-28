@@ -21,6 +21,7 @@ const replayHintBtn = document.getElementById("replayHintBtn");
 const retryListenBtn = document.getElementById("retryListenBtn");
 const nextBtn = document.getElementById("nextBtn");
 const skipBtn = document.getElementById("skipBtn");
+const showAnswerBtn = document.getElementById("showAnswerBtn");
 const doneCount = document.getElementById("doneCount");
 
 if (doneCount) doneCount.textContent = ANIMALS.length;
@@ -366,14 +367,31 @@ async function handleAnswer(transcript) {
     feedbackText.textContent = "땡! 아쉬워요~";
     await playHintAndListen(false);
   } else {
-    animalEmoji.textContent = animal.emoji;
-    const wasWord = wasParticle(animal.name);
-    feedbackText.textContent = `정답은 ${animal.name}${wasWord}!`;
-    statusText.textContent = `정답: ${animal.name}`;
-    await playAudio(`audio/${animal.id}-reveal.mp3`);
-    if (token !== quizToken) return;
-    finishAnimal();
+    await revealAnswer(token);
   }
+}
+
+async function revealAnswer(token) {
+  const animal = currentAnimal();
+  animalEmoji.textContent = animal.emoji;
+  const wasWord = wasParticle(animal.name);
+  feedbackText.textContent = `정답은 ${animal.name}${wasWord}!`;
+  statusText.textContent = `정답: ${animal.name}`;
+  await playAudio(`audio/${animal.id}-reveal.mp3`);
+  if (token !== quizToken) return;
+  finishAnimal();
+}
+
+function showAnswer() {
+  const token = quizToken;
+  if (manualCancelListening) manualCancelListening();
+  stopCurrentAudio();
+  playBtn.classList.add("hidden");
+  doneListeningBtn.classList.add("hidden");
+  replayHintBtn.classList.add("hidden");
+  retryListenBtn.classList.add("hidden");
+  feedbackText.textContent = "";
+  revealAnswer(token);
 }
 
 function finishAnimal() {
@@ -424,3 +442,5 @@ retryListenBtn.addEventListener("click", () => {
 nextBtn.addEventListener("click", goNext);
 
 skipBtn.addEventListener("click", skipToNext);
+
+showAnswerBtn.addEventListener("click", showAnswer);
